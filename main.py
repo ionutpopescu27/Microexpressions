@@ -7,6 +7,10 @@ from mediapipe.tasks.python import vision
 import numpy as np
 import matplotlib.pyplot as plt
 import os
+import openai 
+#openai.api_key = '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'
+
+
 
 # Function to download a file
 def download_file(url, filename):
@@ -112,3 +116,34 @@ for blendshape in sorted_blendshapes:
     print(f"{blendshape.category_name}: {blendshape.score:.4f}")
 
 # sorted_blendshapes - ponderile sortate
+
+def generate_emotion_analysis(blendshapes_list):
+    # Convert emotion scores to a readable string
+    blendshapes_dict = {blendshape.category_name: blendshape.score for blendshape in sorted_blendshapes}
+
+    blendshapes_list = "\n".join([f"{name}: {score:.4f}" for name, score in blendshapes_dict.items()])
+
+    prompt = f"""
+    Based on the following blendshape scores extracted from facial expressions, provide a list of microemotions
+    Emotion Scores:
+    {blendshapes_list}
+    """
+
+    response = openai.chat.completions.create(
+        messages=[
+        {
+            "role": "user",
+            "content": prompt,
+        }
+    ],
+    model="gpt-4",
+    )
+
+    analysis = response.choices[0].message.content.strip()
+    return analysis
+
+# Generate the emotion analysis
+analysis = generate_emotion_analysis(sorted_blendshapes)
+
+print("\nEmotion Analysis:")
+print(analysis)
