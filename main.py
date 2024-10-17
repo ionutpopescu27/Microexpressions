@@ -8,7 +8,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 import openai 
-#openai.api_key = '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'
 
 
 
