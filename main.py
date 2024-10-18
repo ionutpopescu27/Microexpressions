@@ -8,7 +8,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 import openai 
+import time
+from dotenv import load_dotenv
 
+load_dotenv()
+
+openai.api_key = os. getenv('key')
 
 
 # Function to download a file
@@ -81,41 +86,6 @@ def plot_face_blendshapes_bar_graph(face_blendshapes):
     plt.tight_layout()
     plt.show()
 
-# Load and display the image using OpenCV
-img = cv2.imread("image.png")
-#cv2.imshow("Input Image", img)
-#cv2.waitKey(0)
-
-# STEP 2: Create a FaceLandmarker object
-base_options = python.BaseOptions(model_asset_path='face_landmarker_v2_with_blendshapes.task')
-options = vision.FaceLandmarkerOptions(base_options=base_options,
-                                       output_face_blendshapes=True,
-                                       output_facial_transformation_matrixes=True,
-                                       num_faces=1)
-detector = vision.FaceLandmarker.create_from_options(options)
-
-# STEP 3: Load the input image
-image = mp.Image.create_from_file("image.png")
-
-# STEP 4: Detect face landmarks from the input image
-detection_result = detector.detect(image)
-
-# STEP 5: Process the detection result (visualize it)
-annotated_image = draw_landmarks_on_image(image.numpy_view(), detection_result)
-#cv2.imshow("Annotated Image", cv2.cvtColor(annotated_image, cv2.COLOR_RGB2BGR))
-#cv2.waitKey(0)
-
-# Plot face blendshapes bar graph
-#plot_face_blendshapes_bar_graph(detection_result.face_blendshapes[0])
-
-# Print the facial transformation matrixes
-#print(detection_result.facial_transformation_matrixes)
-sorted_blendshapes = sorted(detection_result.face_blendshapes[0], key=lambda x: x.score, reverse=True)
-for blendshape in sorted_blendshapes:
-    print(f"{blendshape.category_name}: {blendshape.score:.4f}")
-
-# sorted_blendshapes - ponderile sortate
-
 def generate_emotion_analysis(blendshapes_list):
     # Convert emotion scores to a readable string
     blendshapes_dict = {blendshape.category_name: blendshape.score for blendshape in sorted_blendshapes}
@@ -141,8 +111,90 @@ def generate_emotion_analysis(blendshapes_list):
     analysis = response.choices[0].message.content.strip()
     return analysis
 
-# Generate the emotion analysis
-analysis = generate_emotion_analysis(sorted_blendshapes)
 
-print("\nEmotion Analysis:")
-print(analysis)
+# Load and display the image using OpenCV
+# Open the video capture
+cap = cv2.VideoCapture('/home/mihai/Documents/Rebeldot/rebeldot5/emotion.mp4')  # Change to your video file path if needed
+
+# Check if the capture was successful
+if not cap.isOpened():
+    print("Error: Could not open video.")
+    exit()
+
+# Create a FaceLandmarker object
+base_options = python.BaseOptions(model_asset_path='face_landmarker_v2_with_blendshapes.task')
+options = vision.FaceLandmarkerOptions(base_options=base_options,
+                                       output_face_blendshapes=True,
+                                       output_facial_transformation_matrixes=True,
+                                       num_faces=1)
+detector = vision.FaceLandmarker.create_from_options(options)
+
+output_file_path = "emotion_analysis_output.txt"
+with open(output_file_path, "w") as output_file:
+    start_time = time.time()  # Record the start time
+    analysis_done = False  # Flag to ensure analysis is done only once
+
+    while True:
+        # Read a frame from the video
+        ret, frame = cap.read()
+
+        # If a frame was read successfully
+        if ret:
+            # Convert the frame from BGR to RGB
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+            # Create a MediaPipe image from the RGB frame
+            image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
+
+            # Detect face landmarks from the input image
+            detection_result = detector.detect(image)
+
+            # Process the detection result (visualize it)
+            annotated_image = draw_landmarks_on_image(rgb_frame, detection_result)
+
+            # Convert annotated image back to BGR for OpenCV
+            annotated_image_bgr = cv2.cvtColor(annotated_image, cv2.COLOR_RGB2BGR)
+
+            # Display the annotated image
+            cv2.imshow("Annotated Image", annotated_image_bgr)
+
+            # Emotion analysis part
+            if detection_result.face_blendshapes and not analysis_done:
+                sorted_blendshapes = sorted(detection_result.face_blendshapes[0], key=lambda x: x.score, reverse=True)
+
+                # Get the current elapsed time
+                elapsed_time = time.time() - start_time  # Calculate elapsed time in seconds
+
+                # Call analysis after 10 seconds
+                if elapsed_time >= 10:
+                    # Generate the emotion analysis
+                    analysis = generate_emotion_analysis(sorted_blendshapes)
+                    analysis_done = True  # Set flag to True to avoid calling again
+                    elapsed_time = 0
+                    # Get the current second of the video
+                    current_time_sec = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0  # Convert milliseconds to seconds
+
+                    # Write the emotion analysis to the output file
+                    if isinstance(analysis, str):
+                        output_file.write(f"\nEmotion Analysis at {current_time_sec:.2f} seconds:\n")
+                        output_file.write(analysis + "\n")
+                    else:
+                        print("Analysis is not a string:", type(analysis))
+                        output_file.write(f"\nEmotion Analysis (not a string) at {current_time_sec:.2f} seconds:\n")
+                        output_file.write(str(analysis) + "\n")
+
+                    print(f"\nEmotion Analysis at {current_time_sec:.2f} seconds:")
+                    print(analysis)
+
+            # Break the loop if 'q' is pressed
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+        else:
+            print("Error: Could not read frame.")
+            break
+
+# Release the video capture object
+cap.release()
+cv2.destroyAllWindows()
+
+# Generate the emotion analysi
