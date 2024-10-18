@@ -10,10 +10,11 @@ import os
 import openai 
 import time
 from dotenv import load_dotenv
+import threading  # Import threading
 
 load_dotenv()
 
-openai.api_key = os. getenv('key')
+openai.api_key = os.getenv('key')
 
 
 # Function to download a file
@@ -25,6 +26,7 @@ def download_file(url, filename):
 # Download the model and the image
 download_file("https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task", "face_landmarker_v2_with_blendshapes.task")
 download_file("https://storage.googleapis.com/mediapipe-assets/business-person.png", "image.png")
+
 
 # Function to draw landmarks on the image
 def draw_landmarks_on_image(rgb_image, detection_result):
@@ -66,36 +68,23 @@ def draw_landmarks_on_image(rgb_image, detection_result):
 
     return annotated_image
 
-# Function to plot blendshapes bar graph
-def plot_face_blendshapes_bar_graph(face_blendshapes):
-    face_blendshapes_names = [face_blendshapes_category.category_name for face_blendshapes_category in face_blendshapes]
-    face_blendshapes_scores = [face_blendshapes_category.score for face_blendshapes_category in face_blendshapes]
-    face_blendshapes_ranks = range(len(face_blendshapes_names))
 
-    fig, ax = plt.subplots(figsize=(12, 12))
-    bar = ax.barh(face_blendshapes_ranks, face_blendshapes_scores, label=[str(x) for x in face_blendshapes_ranks])
-    ax.set_yticks(face_blendshapes_ranks, labels=face_blendshapes_names)
-    ax.invert_yaxis()
+# Function to generate emotion analysis asynchronously
+def generate_emotion_analysis_async(blendshapes_list, current_time_sec, output_file):
+    blendshapes_dict = {blendshape.category_name: blendshape.score for blendshape in blendshapes_list}
 
-    # Label each bar with values
-    for score, patch in zip(face_blendshapes_scores, bar.patches):
-        plt.text(patch.get_x() + patch.get_width(), patch.get_y(), f"{score:.4f}", va="top")
-
-    ax.set_xlabel('Score')
-    ax.set_title("Face Blendshapes")
-    plt.tight_layout()
-    plt.show()
-
-def generate_emotion_analysis(blendshapes_list):
-    # Convert emotion scores to a readable string
-    blendshapes_dict = {blendshape.category_name: blendshape.score for blendshape in sorted_blendshapes}
-
-    blendshapes_list = "\n".join([f"{name}: {score:.4f}" for name, score in blendshapes_dict.items()])
+    blendshapes_list_str = "\n".join([f"{name}: {score:.4f}" for name, score in blendshapes_dict.items()])
 
     prompt = f"""
-    Based on the following blendshape scores extracted from facial expressions, provide a list of microemotions
+    Analyze the following blendshape scores extracted from facial expressions to determine the likely micro-emotions and overall emotional state. Provide specific interpretations regarding whether these emotions might suggest underlying mental health conditions such as bipolar disorder, depression, or anxiety. For each interpretation, consider how combinations of facial movements could reflect:
+
+Bipolar disorder: Rapid or extreme shifts in emotional expressions (e.g., simultaneous smiling with signs of tension), which might indicate manic or depressive phases.
+Depression: Low expressiveness or subtle emotional cues (e.g., reduced smile intensity or lack of eyebrow movement) that could suggest sadness, fatigue, or lack of interest.
+Anxiety: Signs of tension in the facial muscles (e.g., squinting, brow furrowing, or mouth pressing) that might reveal stress, nervousness, or apprehension.
+Analyze the blendshapes to identify potential masking of emotions, where facial cues such as a smile combined with brow furrowing or squinting could indicate attempts to conceal anxiety or stress.
+
     Emotion Scores:
-    {blendshapes_list}
+    {blendshapes_list_str}
     """
 
     response = openai.chat.completions.create(
@@ -109,10 +98,17 @@ def generate_emotion_analysis(blendshapes_list):
     )
 
     analysis = response.choices[0].message.content.strip()
-    return analysis
+
+    # Write the result to the output file in a thread-safe manner
+    with threading.Lock():
+        try:
+            output_file.write(f"\nEmotion Analysis at {current_time_sec:.2f} seconds:\n")
+            output_file.write(analysis + "\n")
+            output_file.flush()  # Ensure it's written to the file immediately
+        except Exception as e:
+            print(f"Error writing to file: {e}")
 
 
-# Load and display the image using OpenCV
 # Open the video capture
 cap = cv2.VideoCapture('/home/mihai/Documents/Rebeldot/rebeldot5/emotion.mp4')  # Change to your video file path if needed
 
@@ -133,10 +129,9 @@ current_directory = os.path.dirname(os.path.abspath(__file__))
 
 # Define the output file path in the same directory as the script
 output_file_path = os.path.join(current_directory, "emotion_analysis_output.txt")
-with open(output_file_path, "a") as output_file:  # Changed to append mode "a"
-    start_time = time.time()  # Record the start time
-    analysis_done = False  # Flag to ensure analysis is done only once
-
+with open(output_file_path, "w") as output_file:  # Changed to append mode "a"
+    
+    firstFace = True
     while True:
         # Read a frame from the video
         ret, frame = cap.read()
@@ -162,35 +157,24 @@ with open(output_file_path, "a") as output_file:  # Changed to append mode "a"
 
             # Emotion analysis part
             if detection_result.face_blendshapes:
+                if firstFace:
+                    start_time = time.time() 
+                    last_analysis_time = start_time
+                    firstFace = False
+
                 sorted_blendshapes = sorted(detection_result.face_blendshapes[0], key=lambda x: x.score, reverse=True)
 
                 # Get the current elapsed time
-                elapsed_time = time.time() - start_time  # Calculate elapsed time in seconds
-                # Call analysis after 10 seconds
-                if elapsed_time >= 10:
-                    print("dadadada")
-                    # Generate the emotion analysis
-                    analysis = generate_emotion_analysis(sorted_blendshapes)
-                    analysis_done = True  # Set flag to True to avoid calling again
-                    elapsed_time = 0
+                current_time = time.time()
+                
+                if current_time - last_analysis_time >= 10:
                     # Get the current second of the video
                     current_time_sec = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0  # Convert milliseconds to seconds
 
-                    try:
-                        if isinstance(analysis, str):
-                            output_file.write(f"\nEmotion Analysis at {current_time_sec:.2f} seconds:\n")
-                            output_file.write(analysis + "\n")
-                            output_file.flush()  # Flush the buffer to ensure data is written
-                        else:
-                            print("Analysis is not a string:", type(analysis))
-                            output_file.write(f"\nEmotion Analysis (not a string) at {current_time_sec:.2f} seconds:\n")
-                            output_file.write(str(analysis) + "\n")
-                            output_file.flush()  # Flush the buffer to ensure data is written
-                    except Exception as e:
-                        print(f"Error writing to file: {e}")
+                    # Run emotion analysis asynchronously in a new thread
+                    threading.Thread(target=generate_emotion_analysis_async, args=(sorted_blendshapes, current_time_sec, output_file)).start()
 
-                  #  print(f"\nEmotion Analysis at {current_time_sec:.2f} seconds:")
-                 #   print(analysis)
+                    last_analysis_time = current_time
 
             # Break the loop if 'q' is pressed
             if cv2.waitKey(1) & 0xFF == ord('q'):
@@ -202,5 +186,3 @@ with open(output_file_path, "a") as output_file:  # Changed to append mode "a"
 # Release the video capture object
 cap.release()
 cv2.destroyAllWindows()
-
-# Generate the emotion analysi
