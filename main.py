@@ -10,34 +10,29 @@ import os
 import openai 
 import time
 from dotenv import load_dotenv
-import threading  # Import threading
+import threading  
 
 load_dotenv()
 
 openai.api_key = os.getenv('key')
 
 
-# Function to download a file
 def download_file(url, filename):
     response = requests.get(url)
     with open(filename, 'wb') as file:
         file.write(response.content)
 
-# Download the model and the image
 download_file("https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task", "face_landmarker_v2_with_blendshapes.task")
 download_file("https://storage.googleapis.com/mediapipe-assets/business-person.png", "image.png")
 
 
-# Function to draw landmarks on the image
 def draw_landmarks_on_image(rgb_image, detection_result):
     face_landmarks_list = detection_result.face_landmarks
     annotated_image = np.copy(rgb_image)
 
-    # Loop through the detected faces to visualize.
     for idx in range(len(face_landmarks_list)):
         face_landmarks = face_landmarks_list[idx]
 
-        # Draw the face landmarks.
         face_landmarks_proto = landmark_pb2.NormalizedLandmarkList()
         face_landmarks_proto.landmark.extend([
             landmark_pb2.NormalizedLandmark(x=landmark.x, y=landmark.y, z=landmark.z) for landmark in face_landmarks
@@ -69,7 +64,6 @@ def draw_landmarks_on_image(rgb_image, detection_result):
     return annotated_image
 
 
-# Function to generate emotion analysis asynchronously
 def generate_emotion_analysis_async(blendshapes_list, current_time_sec, output_file):
     blendshapes_dict = {blendshape.category_name: blendshape.score for blendshape in blendshapes_list}
 
@@ -99,20 +93,18 @@ Analyze the blendshapes to identify potential masking of emotions, where facial 
 
     analysis = response.choices[0].message.content.strip()
 
-    # Write the result to the output file in a thread-safe manner
+
     with threading.Lock():
         try:
             output_file.write(f"\nEmotion Analysis at {current_time_sec:.2f} seconds:\n")
             output_file.write(analysis + "\n")
-            output_file.flush()  # Ensure it's written to the file immediately
+            output_file.flush()  
         except Exception as e:
             print(f"Error writing to file: {e}")
 
 
-# Open the video capture
-cap = cv2.VideoCapture('/home/mihai/Documents/Rebeldot/rebeldot5/emotion.mp4')  # Change to your video file path if needed
+cap = cv2.VideoCapture('emotion.mp4')  
 
-# Check if the capture was successful
 if not cap.isOpened():
     print("Error: Could not open video.")
     exit()
@@ -127,35 +119,25 @@ detector = vision.FaceLandmarker.create_from_options(options)
 
 current_directory = os.path.dirname(os.path.abspath(__file__))
 
-# Define the output file path in the same directory as the script
 output_file_path = os.path.join(current_directory, "emotion_analysis_output.txt")
-with open(output_file_path, "w") as output_file:  # Changed to append mode "a"
+with open(output_file_path, "w") as output_file:  
     
     firstFace = True
     while True:
-        # Read a frame from the video
         ret, frame = cap.read()
-        # If a frame was read successfully
         if ret:
-            # Convert the frame from BGR to RGB
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-            # Create a MediaPipe image from the RGB frame
             image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
 
-            # Detect face landmarks from the input image
             detection_result = detector.detect(image)
 
-            # Process the detection result (visualize it)
             annotated_image = draw_landmarks_on_image(rgb_frame, detection_result)
 
-            # Convert annotated image back to BGR for OpenCV
             annotated_image_bgr = cv2.cvtColor(annotated_image, cv2.COLOR_RGB2BGR)
 
-            # Display the annotated image
             cv2.imshow("Annotated Image", annotated_image_bgr)
 
-            # Emotion analysis part
             if detection_result.face_blendshapes:
                 if firstFace:
                     start_time = time.time() 
@@ -164,25 +146,21 @@ with open(output_file_path, "w") as output_file:  # Changed to append mode "a"
 
                 sorted_blendshapes = sorted(detection_result.face_blendshapes[0], key=lambda x: x.score, reverse=True)
 
-                # Get the current elapsed time
                 current_time = time.time()
                 
                 if current_time - last_analysis_time >= 10:
-                    # Get the current second of the video
-                    current_time_sec = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0  # Convert milliseconds to seconds
+                    
+                    current_time_sec = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0  
 
-                    # Run emotion analysis asynchronously in a new thread
                     threading.Thread(target=generate_emotion_analysis_async, args=(sorted_blendshapes, current_time_sec, output_file)).start()
 
                     last_analysis_time = current_time
 
-            # Break the loop if 'q' is pressed
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
         else:
             print("Error: Could not read frame.")
             break
 
-# Release the video capture object
 cap.release()
 cv2.destroyAllWindows()
