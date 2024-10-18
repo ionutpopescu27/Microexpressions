@@ -129,15 +129,17 @@ options = vision.FaceLandmarkerOptions(base_options=base_options,
                                        num_faces=1)
 detector = vision.FaceLandmarker.create_from_options(options)
 
-output_file_path = "emotion_analysis_output.txt"
-with open(output_file_path, "w") as output_file:
+current_directory = os.path.dirname(os.path.abspath(__file__))
+
+# Define the output file path in the same directory as the script
+output_file_path = os.path.join(current_directory, "emotion_analysis_output.txt")
+with open(output_file_path, "a") as output_file:  # Changed to append mode "a"
     start_time = time.time()  # Record the start time
     analysis_done = False  # Flag to ensure analysis is done only once
 
     while True:
         # Read a frame from the video
         ret, frame = cap.read()
-
         # If a frame was read successfully
         if ret:
             # Convert the frame from BGR to RGB
@@ -159,14 +161,14 @@ with open(output_file_path, "w") as output_file:
             cv2.imshow("Annotated Image", annotated_image_bgr)
 
             # Emotion analysis part
-            if detection_result.face_blendshapes and not analysis_done:
+            if detection_result.face_blendshapes:
                 sorted_blendshapes = sorted(detection_result.face_blendshapes[0], key=lambda x: x.score, reverse=True)
 
                 # Get the current elapsed time
                 elapsed_time = time.time() - start_time  # Calculate elapsed time in seconds
-
                 # Call analysis after 10 seconds
                 if elapsed_time >= 10:
+                    print("dadadada")
                     # Generate the emotion analysis
                     analysis = generate_emotion_analysis(sorted_blendshapes)
                     analysis_done = True  # Set flag to True to avoid calling again
@@ -174,17 +176,21 @@ with open(output_file_path, "w") as output_file:
                     # Get the current second of the video
                     current_time_sec = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0  # Convert milliseconds to seconds
 
-                    # Write the emotion analysis to the output file
-                    if isinstance(analysis, str):
-                        output_file.write(f"\nEmotion Analysis at {current_time_sec:.2f} seconds:\n")
-                        output_file.write(analysis + "\n")
-                    else:
-                        print("Analysis is not a string:", type(analysis))
-                        output_file.write(f"\nEmotion Analysis (not a string) at {current_time_sec:.2f} seconds:\n")
-                        output_file.write(str(analysis) + "\n")
+                    try:
+                        if isinstance(analysis, str):
+                            output_file.write(f"\nEmotion Analysis at {current_time_sec:.2f} seconds:\n")
+                            output_file.write(analysis + "\n")
+                            output_file.flush()  # Flush the buffer to ensure data is written
+                        else:
+                            print("Analysis is not a string:", type(analysis))
+                            output_file.write(f"\nEmotion Analysis (not a string) at {current_time_sec:.2f} seconds:\n")
+                            output_file.write(str(analysis) + "\n")
+                            output_file.flush()  # Flush the buffer to ensure data is written
+                    except Exception as e:
+                        print(f"Error writing to file: {e}")
 
-                    print(f"\nEmotion Analysis at {current_time_sec:.2f} seconds:")
-                    print(analysis)
+                  #  print(f"\nEmotion Analysis at {current_time_sec:.2f} seconds:")
+                 #   print(analysis)
 
             # Break the loop if 'q' is pressed
             if cv2.waitKey(1) & 0xFF == ord('q'):
