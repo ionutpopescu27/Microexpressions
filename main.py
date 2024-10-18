@@ -7,39 +7,32 @@ from mediapipe.tasks.python import vision
 import numpy as np
 import matplotlib.pyplot as plt
 import os
-import openai
+import openai 
+import time
 from dotenv import load_dotenv
+import threading  
 
 load_dotenv()
-openai.api_key = os.getenv('OPEN_API_KEY')
 
-# Function to download a file
+openai.api_key = os.getenv('key')
+
+
 def download_file(url, filename):
     response = requests.get(url)
     with open(filename, 'wb') as file:
         file.write(response.content)
 
-
-# Function to download a file
-def download_file(url, filename):
-    response = requests.get(url)
-    with open(filename, 'wb') as file:
-        file.write(response.content)
-
-# Download the model and the image
 download_file("https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task", "face_landmarker_v2_with_blendshapes.task")
 download_file("https://storage.googleapis.com/mediapipe-assets/business-person.png", "image.png")
 
-# Function to draw landmarks on the image
+
 def draw_landmarks_on_image(rgb_image, detection_result):
     face_landmarks_list = detection_result.face_landmarks
     annotated_image = np.copy(rgb_image)
 
-    # Loop through the detected faces to visualize.
     for idx in range(len(face_landmarks_list)):
         face_landmarks = face_landmarks_list[idx]
 
-        # Draw the face landmarks.
         face_landmarks_proto = landmark_pb2.NormalizedLandmarkList()
         face_landmarks_proto.landmark.extend([
             landmark_pb2.NormalizedLandmark(x=landmark.x, y=landmark.y, z=landmark.z) for landmark in face_landmarks
@@ -70,71 +63,22 @@ def draw_landmarks_on_image(rgb_image, detection_result):
 
     return annotated_image
 
-# Function to plot blendshapes bar graph
-def plot_face_blendshapes_bar_graph(face_blendshapes):
-    face_blendshapes_names = [face_blendshapes_category.category_name for face_blendshapes_category in face_blendshapes]
-    face_blendshapes_scores = [face_blendshapes_category.score for face_blendshapes_category in face_blendshapes]
-    face_blendshapes_ranks = range(len(face_blendshapes_names))
 
-    fig, ax = plt.subplots(figsize=(12, 12))
-    bar = ax.barh(face_blendshapes_ranks, face_blendshapes_scores, label=[str(x) for x in face_blendshapes_ranks])
-    ax.set_yticks(face_blendshapes_ranks, labels=face_blendshapes_names)
-    ax.invert_yaxis()
+def generate_emotion_analysis_async(blendshapes_list, current_time_sec, output_file):
+    blendshapes_dict = {blendshape.category_name: blendshape.score for blendshape in blendshapes_list}
 
-    # Label each bar with values
-    for score, patch in zip(face_blendshapes_scores, bar.patches):
-        plt.text(patch.get_x() + patch.get_width(), patch.get_y(), f"{score:.4f}", va="top")
-
-    ax.set_xlabel('Score')
-    ax.set_title("Face Blendshapes")
-    plt.tight_layout()
-    plt.show()
-
-# Load and display the image using OpenCV
-img = cv2.imread("image.png")
-#cv2.imshow("Input Image", img)
-#cv2.waitKey(0)
-
-# STEP 2: Create a FaceLandmarker object
-base_options = python.BaseOptions(model_asset_path='face_landmarker_v2_with_blendshapes.task')
-options = vision.FaceLandmarkerOptions(base_options=base_options,
-                                       output_face_blendshapes=True,
-                                       output_facial_transformation_matrixes=True,
-                                       num_faces=1)
-detector = vision.FaceLandmarker.create_from_options(options)
-
-# STEP 3: Load the input image
-image = mp.Image.create_from_file("image.png")
-
-# STEP 4: Detect face landmarks from the input image
-detection_result = detector.detect(image)
-
-# STEP 5: Process the detection result (visualize it)
-annotated_image = draw_landmarks_on_image(image.numpy_view(), detection_result)
-#cv2.imshow("Annotated Image", cv2.cvtColor(annotated_image, cv2.COLOR_RGB2BGR))
-#cv2.waitKey(0)
-
-# Plot face blendshapes bar graph
-#plot_face_blendshapes_bar_graph(detection_result.face_blendshapes[0])
-
-# Print the facial transformation matrixes
-#print(detection_result.facial_transformation_matrixes)
-sorted_blendshapes = sorted(detection_result.face_blendshapes[0], key=lambda x: x.score, reverse=True)
-for blendshape in sorted_blendshapes:
-    print(f"{blendshape.category_name}: {blendshape.score:.4f}")
-
-# sorted_blendshapes - ponderile sortate
-
-def generate_emotion_analysis(blendshapes_list):
-    # Convert emotion scores to a readable string
-    blendshapes_dict = {blendshape.category_name: blendshape.score for blendshape in sorted_blendshapes}
-
-    blendshapes_list = "\n".join([f"{name}: {score:.4f}" for name, score in blendshapes_dict.items()])
+    blendshapes_list_str = "\n".join([f"{name}: {score:.4f}" for name, score in blendshapes_dict.items()])
 
     prompt = f"""
-    Based on the following blendshape scores extracted from facial expressions, provide a small description of what is the mental state of the person.
+    Analyze the following blendshape scores extracted from facial expressions to determine the likely micro-emotions and overall emotional state. Provide specific interpretations regarding whether these emotions might suggest underlying mental health conditions such as bipolar disorder, depression, or anxiety. For each interpretation, consider how combinations of facial movements could reflect:
+
+Bipolar disorder: Rapid or extreme shifts in emotional expressions (e.g., simultaneous smiling with signs of tension), which might indicate manic or depressive phases.
+Depression: Low expressiveness or subtle emotional cues (e.g., reduced smile intensity or lack of eyebrow movement) that could suggest sadness, fatigue, or lack of interest.
+Anxiety: Signs of tension in the facial muscles (e.g., squinting, brow furrowing, or mouth pressing) that might reveal stress, nervousness, or apprehension.
+Analyze the blendshapes to identify potential masking of emotions, where facial cues such as a smile combined with brow furrowing or squinting could indicate attempts to conceal anxiety or stress.
+
     Emotion Scores:
-    {blendshapes_list}
+    {blendshapes_list_str}
     """
 
     response = openai.chat.completions.create(
@@ -148,10 +92,75 @@ def generate_emotion_analysis(blendshapes_list):
     )
 
     analysis = response.choices[0].message.content.strip()
-    return analysis
 
-# Generate the emotion analysis
-analysis = generate_emotion_analysis(sorted_blendshapes)
 
-print("\nEmotion Analysis:")
-print(analysis)
+    with threading.Lock():
+        try:
+            output_file.write(f"\nEmotion Analysis at {current_time_sec:.2f} seconds:\n")
+            output_file.write(analysis + "\n")
+            output_file.flush()  
+        except Exception as e:
+            print(f"Error writing to file: {e}")
+
+
+cap = cv2.VideoCapture('emotion.mp4')  
+
+if not cap.isOpened():
+    print("Error: Could not open video.")
+    exit()
+
+# Create a FaceLandmarker object
+base_options = python.BaseOptions(model_asset_path='face_landmarker_v2_with_blendshapes.task')
+options = vision.FaceLandmarkerOptions(base_options=base_options,
+                                       output_face_blendshapes=True,
+                                       output_facial_transformation_matrixes=True,
+                                       num_faces=1)
+detector = vision.FaceLandmarker.create_from_options(options)
+
+current_directory = os.path.dirname(os.path.abspath(__file__))
+
+output_file_path = os.path.join(current_directory, "emotion_analysis_output.txt")
+with open(output_file_path, "w") as output_file:  
+    
+    firstFace = True
+    while True:
+        ret, frame = cap.read()
+        if ret:
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+            image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
+
+            detection_result = detector.detect(image)
+
+            annotated_image = draw_landmarks_on_image(rgb_frame, detection_result)
+
+            annotated_image_bgr = cv2.cvtColor(annotated_image, cv2.COLOR_RGB2BGR)
+
+            cv2.imshow("Annotated Image", annotated_image_bgr)
+
+            if detection_result.face_blendshapes:
+                if firstFace:
+                    start_time = time.time() 
+                    last_analysis_time = start_time
+                    firstFace = False
+
+                sorted_blendshapes = sorted(detection_result.face_blendshapes[0], key=lambda x: x.score, reverse=True)
+
+                current_time = time.time()
+                
+                if current_time - last_analysis_time >= 10:
+                    
+                    current_time_sec = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0  
+
+                    threading.Thread(target=generate_emotion_analysis_async, args=(sorted_blendshapes, current_time_sec, output_file)).start()
+
+                    last_analysis_time = current_time
+
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+        else:
+            print("Error: Could not read frame.")
+            break
+
+cap.release()
+cv2.destroyAllWindows()
