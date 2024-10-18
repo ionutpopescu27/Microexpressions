@@ -7,8 +7,17 @@ from mediapipe.tasks.python import vision
 import numpy as np
 import matplotlib.pyplot as plt
 import os
-import openai 
+import openai
+from dotenv import load_dotenv
 
+load_dotenv()
+openai.api_key = os.getenv('OPEN_API_KEY')
+
+# Function to download a file
+def download_file(url, filename):
+    response = requests.get(url)
+    with open(filename, 'wb') as file:
+        file.write(response.content)
 
 
 # Function to download a file
@@ -123,7 +132,7 @@ def generate_emotion_analysis(blendshapes_list):
     blendshapes_list = "\n".join([f"{name}: {score:.4f}" for name, score in blendshapes_dict.items()])
 
     prompt = f"""
-    Based on the following blendshape scores extracted from facial expressions, provide a list of microemotions
+    Based on the following blendshape scores extracted from facial expressions, provide a small description of what is the mental state of the person.
     Emotion Scores:
     {blendshapes_list}
     """
