@@ -1,5 +1,9 @@
 # rebeldot5
 
+## Overview
+
+Python app for detecting microexpressions. This project leverages the OpenAI API's capabilities in order to interpret emotions and assess the condition of patients.
+
 ## Requirements
 
 To run the project, you'll need to install the necessary dependencies. They can be found in the `requirements.txt` file. You can install them by running:
